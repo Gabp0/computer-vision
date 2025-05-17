@@ -1,13 +1,12 @@
 import cv2
-from time import sleep
 import numpy as np
 
-CAP_SOURCE = 0
+CAP_SOURCE = 0  # camera source
 
-GAUSSIAN_KERNEL = (5, 5)
-CANNY_THRSH = (30, 200)
-MIN_AREA_RATIO = 0.2
-POLY_EPISILON_RATIO = 0.1
+GAUSSIAN_KERNEL = (5, 5)    # kernel size for Gaussian blur and dilation
+CANNY_THRSH = (30, 200)     # Canny edge detection thresholds
+MIN_AREA_RATIO = 0.2        # minimum area ratio with respect to the image area for contour
+POLY_EPISILON_RATIO = 0.1   # epsilon ratio for contour polygon approximation
 
 def contour_to_point_dist(countour: np.ndarray, point: tuple) -> int:
 
@@ -70,19 +69,20 @@ def order_points(points: np.ndarray) -> np.ndarray:
 def calculate_target_points(points: np.ndarray) -> list[np.ndarray]:
     (top_left, top_right, bottom_right, bottom_left) = points
 
+    # calculate the new width and height using euclidean distance
     left_height = np.sqrt(((top_left[0] - bottom_left[0]) ** 2) + ((top_left[1] - bottom_left[1]) ** 2))
     right_height = np.sqrt(((top_right[0] - bottom_right[0]) ** 2) + ((top_right[1] - bottom_right[1]) ** 2))
     top_width = np.sqrt(((top_right[0] - top_left[0]) ** 2) + ((top_right[1] - top_left[1]) ** 2))
     bottom_width = np.sqrt(((bottom_right[0] - bottom_left[0]) ** 2) + ((bottom_right[1] - bottom_left[1]) ** 2))
 
-    max_height = max(int(left_height), int(right_height))
-    max_width = max(int(top_width), int(bottom_width))
+    min_height = min(int(left_height), int(right_height))
+    min_width = min(int(top_width), int(bottom_width))
 
     target_points = np.array([
         [0, 0],
-        [max_width - 1, 0],
-        [max_width - 1, max_height - 1],
-        [0, max_height - 1]], dtype="float32")
+        [min_width - 1, 0],
+        [min_width - 1, min_height - 1],
+        [0, min_height - 1]], dtype="float32")
 
     return target_points
 
@@ -90,14 +90,14 @@ def warp_square(frame: np.ndarray, ordered_points: np.ndarray, target_points: li
     transformation_matrix = cv2.getPerspectiveTransform(ordered_points, target_points)
     height = int(target_points[2][1] - target_points[0][1])
     width = int(target_points[1][0] - target_points[0][0])
-    warped_square = cv2.warpPerspective(frame, transformation_matrix, (width, height))
-    return warped_square
+    return cv2.warpPerspective(frame, transformation_matrix, (width, height))
 
 def display_frame(frame: np.ndarray, square: np.ndarray, warped_square: np.ndarray) -> None:
+    rf = 1 # resize factor
     h, w, _ = frame.shape
-    rf = 0.75
     display_frame = cv2.drawContours(frame, [square], -1, (0, 255, 0), 3)
     display_frame = cv2.resize(display_frame, (int(w / rf), int(h / rf)))
+    cv2.putText(display_frame, "Press 'q' to save and quit", (10, 30), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2)
     
     if warped_square is not None:
         # resize warped square
@@ -110,7 +110,7 @@ def display_frame(frame: np.ndarray, square: np.ndarray, warped_square: np.ndarr
     
     cv2.imshow('frame', display_frame)
 
-def capture_loop() -> tuple[np.ndarray, np.ndarray]:
+def capture_loop() -> None:
     # Initialize camera
     cap = cv2.VideoCapture(CAP_SOURCE)
     if not cap.isOpened():
@@ -140,16 +140,20 @@ def capture_loop() -> tuple[np.ndarray, np.ndarray]:
             
             warped_square = warp_square(frame, ordered_points, target_points)
 
+        # draw and show frame
         display_frame(frame, central_square_points, warped_square)
         if cv2.waitKey(1) & 0xFF == ord('q'):
             cv2.destroyAllWindows()
-            cv2.imwrite('document.jpg', warped_square)
-            cv2.imshow('Warped Square', warped_square)
-            cv2.waitKey(0)
+            
+            # save the warped document
+            if warped_square is not None:
+                cv2.imwrite('document.jpg', warped_square)
+                cv2.imshow('Warped Document', warped_square)
+                cv2.waitKey(0)
             break
 
-    return frame, central_square_points
+    cap.release()
+    cv2.destroyAllWindows()
 
 if __name__ == '__main__':
-    frame, square = capture_loop()
-    cv2.destroyAllWindows()
+    capture_loop()
